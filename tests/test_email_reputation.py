@@ -10,7 +10,9 @@ from __future__ import annotations
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase, override_settings
+from django.test import override_settings
+
+from .base import CacheIsolatedTestCase
 from django.utils import timezone
 
 from payguard.email_reputation import (account_is_new, looks_random_email,
@@ -42,7 +44,7 @@ MACHINE_MINTED = [
 ]
 
 
-class RandomnessTests(TestCase):
+class RandomnessTests(CacheIsolatedTestCase):
     def test_a_name_in_its_own_alphabet_is_not_machine_generated(self):
         for email in REAL_PEOPLE:
             with self.subTest(email=email):
@@ -71,7 +73,7 @@ class RandomnessTests(TestCase):
 
 
 @override_settings(CARD_NEW_ACCOUNT_MIN=15, CARD_BLOCK_RANDOM_NEW_EMAIL=True)
-class BothHalvesTests(TestCase):
+class BothHalvesTests(CacheIsolatedTestCase):
     """Neither signal blocks on its own, which is the whole design."""
 
     def _user(self, email, age_minutes):

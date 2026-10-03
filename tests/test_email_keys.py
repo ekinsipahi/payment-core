@@ -9,7 +9,7 @@ public, as `d.a.w.di2153azdin@gmail.com`.
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from .base import CacheIsolatedTestCase
 
 from payguard import card_cooldown_remaining, record_card_failure
 from payguard.risk import canonical_email, is_disposable_email
@@ -17,7 +17,7 @@ from payguard.risk import canonical_email, is_disposable_email
 User = get_user_model()
 
 
-class CanonicalEmailTests(TestCase):
+class CanonicalEmailTests(CacheIsolatedTestCase):
     def test_every_gmail_spelling_collapses_to_one_key(self):
         target = canonical_email("dawdi2153azdin@gmail.com")
         for spelling in (
@@ -46,7 +46,7 @@ class CanonicalEmailTests(TestCase):
                 canonical_email(value)
 
 
-class CooldownFollowsTheMailboxTests(TestCase):
+class CooldownFollowsTheMailboxTests(CacheIsolatedTestCase):
     def test_a_new_spelling_does_not_buy_a_clean_record(self):
         user = User.objects.create_user(username="a", email="dawdi2153azdin@gmail.com")
         for _ in range(3):
@@ -56,7 +56,7 @@ class CooldownFollowsTheMailboxTests(TestCase):
             card_cooldown_remaining(email="dawdi2153azdin+again@googlemail.com"), 0)
 
 
-class DomainsFromTheAccessLogTests(TestCase):
+class DomainsFromTheAccessLogTests(CacheIsolatedTestCase):
     def test_the_throwaway_providers_seen_on_launch_day_are_known(self):
         for domain in ("moimoi.re", "mailto.plus", "fexpost.com", "rover.info"):
             with self.subTest(domain=domain):

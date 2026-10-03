@@ -10,7 +10,9 @@ from __future__ import annotations
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase, override_settings
+from django.test import override_settings
+
+from .base import CacheIsolatedTestCase
 from django.utils import timezone
 
 from payguard import (CardBlocked, card_cooldown_remaining, card_risk_gate,
@@ -23,10 +25,11 @@ User = get_user_model()
 IP = "203.0.113.9"
 
 
-class LadderTests(TestCase):
+class LadderTests(CacheIsolatedTestCase):
     """First decline free, then 30s / 2m / 10m / 1h."""
 
     def setUp(self):
+        super().setUp()
         self.user = User.objects.create_user(username="buyer", email="buyer@example.com")
 
     def fail(self, fingerprint=None):
@@ -58,11 +61,12 @@ class LadderTests(TestCase):
         self.assertEqual(self.wait(), 0)
 
 
-class GoldSignalTests(TestCase):
+class GoldSignalTests(CacheIsolatedTestCase):
     """Declined, try another card, declined, try another. Nobody owns four
     cards they expect to fail."""
 
     def setUp(self):
+        super().setUp()
         self.user = User.objects.create_user(username="tester", email="t@example.com")
 
     def test_several_distinct_cards_earn_a_long_block(self):
@@ -80,10 +84,11 @@ class GoldSignalTests(TestCase):
 
 
 @override_settings(CARD_IP_COOLDOWN_FACTOR=0.25)
-class SharedAddressTests(TestCase):
+class SharedAddressTests(CacheIsolatedTestCase):
     """An airport is one address and hundreds of customers."""
 
     def setUp(self):
+        super().setUp()
         self.user = User.objects.create_user(username="traveller", email="trav@example.com")
 
     def test_an_address_serves_less_than_an_account(self):
@@ -108,7 +113,7 @@ class SharedAddressTests(TestCase):
         card_risk_gate(other, client_ip=IP)
 
 
-class EmailTests(TestCase):
+class EmailTests(CacheIsolatedTestCase):
     def test_throwaway_inboxes_are_recognised(self):
         self.assertTrue(is_disposable_email("a@mailinator.com"))
         self.assertFalse(is_disposable_email("a@gmail.com"))
@@ -123,7 +128,7 @@ class EmailTests(TestCase):
         card_risk_gate(user)
 
 
-class VelocityTests(TestCase):
+class VelocityTests(CacheIsolatedTestCase):
     @override_settings(CARD_MAX_OPEN_SESSIONS=3)
     def test_too_many_unfinished_checkouts_is_refused(self):
         card_velocity_guard(2)
@@ -135,7 +140,7 @@ class VelocityTests(TestCase):
         card_velocity_guard(99)
 
 
-class FailOpenTests(TestCase):
+class FailOpenTests(CacheIsolatedTestCase):
     """A guard that breaks must not take the checkout down with it.
 
     Every one of these is a real payment being refused for a reason that has
@@ -152,7 +157,7 @@ class FailOpenTests(TestCase):
         card_risk_gate(None)
 
 
-class FingerprintTests(TestCase):
+class FingerprintTests(CacheIsolatedTestCase):
     def test_it_is_read_from_the_failed_intent(self):
         pi = {"last_payment_error": {"payment_method": {"card": {"fingerprint": "abc123"}}}}
         self.assertEqual(fingerprint_from_failed_pi(pi), "abc123")
@@ -162,7 +167,7 @@ class FingerprintTests(TestCase):
             self.assertEqual(fingerprint_from_failed_pi(pi), "")
 
 
-class ClientIpTests(TestCase):
+class ClientIpTests(CacheIsolatedTestCase):
     """A backend behind Cloudflare (linksterr) and one directly behind
     Render's edge (proxysterr, esimsterr) must both get the real visitor,
     never the client-forgeable header the OTHER kind of edge would trust."""
@@ -195,7 +200,7 @@ class ClientIpTests(TestCase):
         self.assertIsNone(client_ip(None))
 
 
-class CheckoutIpMemoryTests(TestCase):
+class CheckoutIpMemoryTests(CacheIsolatedTestCase):
     """record_card_failure needs the IP that was live at checkout time, but
     Stripe's payment_intent.payment_failed payload never carries it. proxysterr
     threads it through its own Payment.raw column; a product whose card
@@ -245,10 +250,11 @@ class CheckoutIpMemoryTests(TestCase):
             kind=CardCooldown.Kind.IP, key=IP).exists())
 
 
-class SuccessClearsTheLadderTests(TestCase):
+class SuccessClearsTheLadderTests(CacheIsolatedTestCase):
     """Paying is the strongest possible evidence of not being an attack."""
 
     def setUp(self):
+        super().setUp()
         self.user = User.objects.create_user(username="payer", email="payer@example.com")
 
     def test_a_card_that_works_releases_the_cooldown(self):
