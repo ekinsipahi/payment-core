@@ -14,7 +14,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from payguard import (CardBlocked, card_cooldown_remaining, card_risk_gate,
-                      fingerprint_from_failed_pi, is_disposable_email,
+                      client_ip, fingerprint_from_failed_pi, is_disposable_email,
                       record_card_failure)
 from payguard.gates import card_velocity_guard
 from payguard.models import CardCooldown
@@ -160,3 +160,36 @@ class FingerprintTests(TestCase):
     def test_a_shape_we_did_not_expect_yields_nothing_rather_than_raising(self):
         for pi in ({}, {"last_payment_error": None}, {"last_payment_error": {"payment_method": {}}}):
             self.assertEqual(fingerprint_from_failed_pi(pi), "")
+
+
+class ClientIpTests(TestCase):
+    """A backend behind Cloudflare (linksterr) and one directly behind
+    Render's edge (proxysterr, esimsterr) must both get the real visitor,
+    never the client-forgeable header the OTHER kind of edge would trust."""
+
+    def _req(self, **meta):
+        class R:
+            META = meta
+        return R()
+
+    def test_cloudflare_header_wins_when_present(self):
+        # CF overwrites this at the edge; a client cannot forge it. Must win
+        # even over a client-supplied XFF trying to claim a different IP.
+        req = self._req(HTTP_CF_CONNECTING_IP="203.0.113.9",
+                        HTTP_X_FORWARDED_FOR="198.51.100.1, 10.0.0.1",
+                        REMOTE_ADDR="10.0.0.1")
+        self.assertEqual(client_ip(req), "203.0.113.9")
+
+    def test_falls_back_to_forwarded_for_without_cloudflare(self):
+        # proxysterr/esimsterr today: no Cloudflare in front, Render's own
+        # edge sets XFF correctly.
+        req = self._req(HTTP_X_FORWARDED_FOR="198.51.100.1, 10.0.0.1",
+                        REMOTE_ADDR="10.0.0.1")
+        self.assertEqual(client_ip(req), "198.51.100.1")
+
+    def test_falls_back_to_remote_addr_as_last_resort(self):
+        req = self._req(REMOTE_ADDR="10.0.0.1")
+        self.assertEqual(client_ip(req), "10.0.0.1")
+
+    def test_none_request_returns_none(self):
+        self.assertIsNone(client_ip(None))
