@@ -89,6 +89,17 @@ maps `ValueError → HTTP 400` keeps working with no change.
 - [docs/INTEGRATION.md](docs/INTEGRATION.md) — wire it into a backend (settings, views, webhook).
 - [docs/MARGINS.md](docs/MARGINS.md) — fee/tax margin analysis (why card ≠ crypto, where margins thin out).
 
+## Tests
+
+```bash
+python runtests.py
+```
+
+No host project required: `tests/settings.py` is the smallest Django that can
+hold payguard up, on SQLite in memory. A shared library that can only be
+exercised through whichever backend somebody happens to be working in is a
+library that quietly grows to fit exactly one caller.
+
 ## Design rules
 
 - **Fail open.** Every guard swallows its own errors — a DB/cache hiccup never
