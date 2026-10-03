@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "payguard"
+version = "0.1.0"
+description = "Shared card-payment fraud defense (Stripe/Paddle card-testing guard) for the Sterr backends"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "Django>=4.2",
+    "djangorestframework>=3.14",
+]
+
+[tool.setuptools]
+packages = ["payguard", "payguard.migrations"]
