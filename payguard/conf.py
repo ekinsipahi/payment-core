@@ -37,6 +37,29 @@ def session_window_min():
     return int(_get("CARD_SESSION_WINDOW_MIN", 10) or 0)
 
 
+# --- Shared addresses --------------------------------------------------------
+# How much of a cooldown an IP serves, as a fraction of what an account serves.
+#
+# An account is one person. An address is not, and for these products it is
+# emphatically not: esimsterr sells to travellers, so an airport, a hotel and a
+# cruise ship each put every customer behind one NAT address, and proxysterr
+# sells the shared exit address itself. Blocking an IP for six hours there does
+# not stop an attacker who can change address in seconds; it stops the paying
+# customers who cannot.
+#
+# So the address still counts -- a single machine grinding through a list from
+# one place does get slower -- but it counts at a quarter weight, and the rules
+# that actually catch a distributed attempt are the account ladder and the
+# distinct-card signal, neither of which cares what address it came from.
+#
+# Set to 1.0 for a product whose customers each have their own address.
+def ip_cooldown_factor():
+    try:
+        return max(0.0, float(_get("CARD_IP_COOLDOWN_FACTOR", 0.25)))
+    except (TypeError, ValueError):
+        return 0.25
+
+
 # --- Disposable email extension ---------------------------------------------
 def extra_disposable_domains():
     try:

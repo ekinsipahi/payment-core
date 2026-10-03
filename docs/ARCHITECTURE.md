@@ -114,6 +114,36 @@ slam a long cooldown on the account **and** its IP: `CARD_MULTICARD_COOLDOWN_MIN
 
 Neither stores a card number — only Stripe's safe `fingerprint`.
 
+## Shared addresses, and why an IP is not a person
+
+Every cooldown above applies to the account, the IP and the email alike. For an
+IP that is wrong here, and wrong in a way that costs customers rather than
+catching anybody.
+
+These products are sold to people behind shared addresses *by design*.
+esimsterr sells to travellers: an airport, a hotel and a cruise ship each put
+every customer on one NAT address. proxysterr sells the shared exit address
+itself. A six-hour block on one of those — which is what the gold signal hands
+out — does not inconvenience an attacker, who changes address in seconds; it
+locks out every paying customer sitting behind it, and they do not complain,
+they leave.
+
+So an IP serves `CARD_IP_COOLDOWN_FACTOR` of whatever an account would serve,
+0.25 by default. The address still counts: one machine grinding through a list
+from one place still slows down, which is the case per-IP limits are actually
+good for. What it no longer does is turn a crowded airport into a blocked
+address because one person on it had a bad card.
+
+The rules that catch a distributed attempt are the account ladder and the
+distinct-card signal, and neither of them cares what address it arrived from.
+That is the point — the IP was never the load-bearing key, so weakening it
+costs little and removing a false positive from a travel product is worth a
+great deal.
+
+Applied inside `_force_block`, so every route to an address block is softened
+identically and a new one cannot be added that forgets to. Set it to `1.0` for a
+product whose customers each have their own address.
+
 ## Tunables (Django settings / env)
 
 | Setting | Default | Meaning |
@@ -123,6 +153,7 @@ Neither stores a card number — only Stripe's safe `fingerprint`.
 | `CARD_DISTINCT_FINGERPRINTS` | 3 | distinct cards/account that trip the gold signal |
 | `CARD_DISTINCT_WINDOW_MIN` | 30 | window for the gold signal |
 | `CARD_MULTICARD_COOLDOWN_MIN` | 30 | base penalty (doubles/card, cap 6h) |
+| `CARD_IP_COOLDOWN_FACTOR` | 0.25 | fraction of a cooldown an **IP** serves (see below) |
 | `DISPOSABLE_EMAIL_DOMAINS` | `[]` | extra domains to block on card |
 | throttle rates `topup_ip`/`card`/`card_ip` | 30/8/12 per hour | see Layer 1 |
 

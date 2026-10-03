@@ -67,11 +67,22 @@ def _keys(user=None, ip=None, email=None, fingerprint=None):
 
 
 def _force_block(kind, key, now, seconds: int) -> None:
-    """Push a key's cooldown to AT LEAST now+seconds (never shortens it)."""
+    """Push a key's cooldown to AT LEAST now+seconds (never shortens it).
+
+    An IP serves a fraction of what an account serves -- see
+    conf.ip_cooldown_factor for why. Applied here rather than at each call site
+    so that every route to an address block, the ladder and the multi-card
+    penalty alike, is softened the same way and none can be added later that
+    forgets to.
+    """
     from .models import CardCooldown
 
     if not key or seconds <= 0:
         return
+    if kind == CardCooldown.Kind.IP:
+        seconds = int(seconds * conf.ip_cooldown_factor())
+        if seconds <= 0:
+            return
     target = now + timezone.timedelta(seconds=seconds)
     try:
         with transaction.atomic():
