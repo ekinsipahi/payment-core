@@ -270,8 +270,16 @@ def record_card_success(*, user=None, ip=None, email=None) -> None:
 
     Never raises. A clearing failure must not break a settlement that has
     already taken the customer's money.
+
+    ``ip`` is optional for the same reason it is on record_card_failure: a
+    webhook handler is Stripe calling your server, not a browser request, so
+    it rarely has the client IP to hand. Recalled from whatever card_risk_gate
+    cached at checkout time when omitted.
     """
     from .models import CardCooldown
+
+    if not ip and email:
+        ip = _recall_checkout_ip(email)
 
     keys = _keys(user=user, ip=ip, email=email)
     if not keys:

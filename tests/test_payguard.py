@@ -280,3 +280,18 @@ class SuccessClearsTheLadderTests(CacheIsolatedTestCase):
         from payguard import record_card_success
 
         record_card_success()
+
+    def test_success_recalls_the_remembered_ip_too(self):
+        """A webhook handler is Stripe calling your server, not a browser
+        request — it rarely has the client IP to hand. record_card_success
+        should recall it the same way record_card_failure does, so the
+        address key clears along with account+email instead of being
+        stranded on its cooldown."""
+        from payguard import card_risk_gate, record_card_success
+
+        card_risk_gate(self.user, client_ip=IP, email=self.user.email)
+        for _ in range(3):
+            record_card_failure(user=self.user, email=self.user.email)   # ip recalled, same as success will do
+        self.assertTrue(CardCooldown.objects.filter(kind="ip", key=IP).exists())
+        record_card_success(user=self.user, email=self.user.email)       # no ip= passed
+        self.assertFalse(CardCooldown.objects.filter(kind="ip", key=IP).exists())
