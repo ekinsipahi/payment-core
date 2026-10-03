@@ -27,6 +27,13 @@ def _ladder_seconds(fail_count: int) -> int:
 
 # --- Disposable / throwaway email domains ----------------------------------
 _DISPOSABLE_DOMAINS = {
+    # Pulled from esimsterr's access log on launch day, not from a public list:
+    # four accounts signed up on these and opened small card checkouts within
+    # two minutes. Public disposable lists run to tens of thousands of stale
+    # domains; the ones that actually turn up are worth more than all of them.
+    "moimoi.re", "mailto.plus", "fexpost.com", "fexbox.org", "rover.info",
+    "chitthi.in", "fextemp.com", "any.pink", "merepost.com",
+
     "mailinator.com", "yopmail.com", "guerrillamail.com", "guerrillamail.info",
     "sharklasers.com", "grr.la", "10minutemail.com", "10minutemail.net",
     "tempmail.com", "temp-mail.org", "tempmailo.com", "throwawaymail.com",
@@ -51,6 +58,39 @@ def is_disposable_email(email: str) -> bool:
 
 
 # --- Multi-key exponential cooldown ----------------------------------------
+# Providers that ignore dots in the local part: one inbox, many spellings.
+_DOT_BLIND = {"gmail.com", "googlemail.com"}
+_DOMAIN_ALIASES = {"googlemail.com": "gmail.com"}
+
+
+def canonical_email(email: str) -> str:
+    """The inbox an address actually reaches, for use as a counting key.
+
+    Plus-addressing is universal and Gmail ignores dots, so one mailbox can
+    present an unbounded number of distinct-looking addresses. Counted
+    literally, every spelling is a fresh identity with a clean record — the
+    cheapest evasion there is, and one that turned up in esimsterr's live
+    traffic on the first day as ``d.a.w.di2153azdin@gmail.com``.
+
+    Only ever a key. The address the customer typed is what the product stores
+    and emails; this decides nothing except whether two attempts came from the
+    same place.
+
+    Dots are collapsed **only** for the providers that ignore them. Doing it
+    everywhere would merge two strangers at Outlook into one identity and
+    punish both for each other's cards.
+    """
+    address = (email or "").strip().lower()
+    if "@" not in address:
+        return address
+    local, _, domain = address.rpartition("@")
+    domain = _DOMAIN_ALIASES.get(domain, domain)
+    local = local.split("+", 1)[0]
+    if domain in _DOT_BLIND:
+        local = local.replace(".", "")
+    return f"{local}@{domain}" if local else address
+
+
 def _keys(user=None, ip=None, email=None, fingerprint=None):
     from .models import CardCooldown
 
@@ -60,7 +100,7 @@ def _keys(user=None, ip=None, email=None, fingerprint=None):
     if ip:
         out.append((CardCooldown.Kind.IP, str(ip)[:255]))
     if email and "@" in email:
-        out.append((CardCooldown.Kind.EMAIL, email.strip().lower()[:255]))
+        out.append((CardCooldown.Kind.EMAIL, canonical_email(email)[:255]))
     if fingerprint:
         out.append((CardCooldown.Kind.FINGERPRINT, str(fingerprint)[:255]))
     return out
