@@ -10,7 +10,8 @@ Public API (import from ``payguard``):
     is_disposable_email(email) -> bool
     looks_random_email(email) -> bool
     card_cooldown_remaining(user=, ip=, email=) -> int   # seconds; 0 = allowed
-    record_card_failure(user=, ip=, email=, fingerprint=) -> None
+    record_card_failure(user=, ip=, email=, fingerprint=) -> None  # ip optional, see remember_checkout_ip
+    remember_checkout_ip(email, ip) -> None              # usually automatic via card_risk_gate
     card_wait_message(seconds) -> str
     card_risk_gate(user, client_ip=, email=)             # raises CardBlocked
     card_velocity_guard(open_sessions)                   # raises CardBlocked
@@ -27,6 +28,8 @@ from .risk import (
     card_wait_message,
     is_disposable_email,
     record_card_failure,
+    record_card_success,
+    remember_checkout_ip,
 )
 from .stripe_signals import fingerprint_from_failed_pi, is_uuid, sf
 from .utils import client_ip
@@ -38,6 +41,8 @@ __all__ = [
     "random_new_email_blocks_card",
     "card_cooldown_remaining",
     "record_card_failure",
+    "record_card_success",
+    "remember_checkout_ip",
     "card_wait_message",
     "card_risk_gate",
     "card_velocity_guard",

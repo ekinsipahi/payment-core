@@ -12,8 +12,16 @@ def card_risk_gate(user, *, client_ip=None, email=None) -> None:
     random-looking email on a brand-new account, and any identity still inside its
     failed-attempt cooldown. Call BEFORE creating the Stripe/Paddle session.
     Crypto must NOT be gated (no chargeback to abuse) — every error nudges the
-    abuser there."""
+    abuser there.
+
+    Also remembers (email, client_ip) for record_card_failure to recall later
+    — see risk.remember_checkout_ip. Harmless for products that pass their own
+    ip= explicitly at failure time (e.g. via a Payment.raw column); for ones
+    that don't have anywhere else to carry the IP, this is what makes the
+    failure webhook's IP-based cooldown/gold-signal keys work at all."""
     email = email or getattr(user, "email", "") or ""
+    if client_ip and email:
+        risk.remember_checkout_ip(email, client_ip)
     if risk.is_disposable_email(email):
         raise CardBlocked(
             "Card payments need a permanent email address. Use your main email, "

@@ -15,7 +15,7 @@ from django.utils import timezone
 
 from payguard import (CardBlocked, card_cooldown_remaining, card_risk_gate,
                       client_ip, fingerprint_from_failed_pi, is_disposable_email,
-                      record_card_failure)
+                      record_card_failure, remember_checkout_ip)
 from payguard.gates import card_velocity_guard
 from payguard.models import CardCooldown
 
@@ -193,3 +193,84 @@ class ClientIpTests(TestCase):
 
     def test_none_request_returns_none(self):
         self.assertIsNone(client_ip(None))
+
+
+class CheckoutIpMemoryTests(TestCase):
+    """record_card_failure needs the IP that was live at checkout time, but
+    Stripe's payment_intent.payment_failed payload never carries it. proxysterr
+    threads it through its own Payment.raw column; a product whose card
+    checkout is a bare redirect with no pending-order row (linksterr's
+    subscription flow) has nowhere else to put it. card_risk_gate remembers
+    (email, client_ip) for exactly this case, and record_card_failure recalls
+    it when ip isn't passed explicitly — so a product keeps doing its own
+    thing by passing ip=, and one without that plumbing gets it for free."""
+
+    def _user(self, tag):
+        # distinct email per test — the checkout-IP memory lives in LocMemCache,
+        # outside the DB transaction a TestCase rolls back, so sharing one email
+        # across methods would leak a remembered IP from an earlier test.
+        return User.objects.create_user(username=tag, email=f"{tag}@example.com")
+
+    def test_gate_remembers_ip_and_failure_recalls_it(self):
+        u = self._user("remembers")
+        card_risk_gate(u, client_ip=IP, email=u.email)
+        record_card_failure(user=u, email=u.email)   # no ip= passed
+        self.assertTrue(CardCooldown.objects.filter(
+            kind=CardCooldown.Kind.IP, key=IP).exists())
+
+    def test_explicit_ip_overrides_the_remembered_one(self):
+        """A product with its own Payment.raw-style tracking is unaffected —
+        its explicit ip= is never second-guessed by the cache."""
+        u = self._user("explicitwins")
+        card_risk_gate(u, client_ip=IP, email=u.email)
+        other_ip = "198.51.100.7"
+        record_card_failure(user=u, email=u.email, ip=other_ip)
+        self.assertTrue(CardCooldown.objects.filter(
+            kind=CardCooldown.Kind.IP, key=other_ip).exists())
+        self.assertFalse(CardCooldown.objects.filter(
+            kind=CardCooldown.Kind.IP, key=IP).exists())
+
+    def test_without_a_prior_gate_call_no_ip_key_is_invented(self):
+        """No memory, no explicit ip= → the failure is still logged and
+        laddered on account+email alone, nothing IP-shaped appears."""
+        u = self._user("noip")
+        record_card_failure(user=u, email=u.email)
+        self.assertEqual(CardCooldown.objects.filter(kind=CardCooldown.Kind.IP).count(), 0)
+
+    def test_remember_checkout_ip_can_be_called_directly(self):
+        """For a product gating some other way than card_risk_gate."""
+        remember_checkout_ip("direct@example.com", IP)
+        record_card_failure(email="direct@example.com")
+        self.assertTrue(CardCooldown.objects.filter(
+            kind=CardCooldown.Kind.IP, key=IP).exists())
+
+
+class SuccessClearsTheLadderTests(TestCase):
+    """Paying is the strongest possible evidence of not being an attack."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="payer", email="payer@example.com")
+
+    def test_a_card_that_works_releases_the_cooldown(self):
+        from payguard import record_card_success
+
+        for _ in range(3):
+            record_card_failure(user=self.user, ip=IP, email=self.user.email)
+        self.assertGreater(card_cooldown_remaining(user=self.user, email=self.user.email), 0)
+        record_card_success(user=self.user, ip=IP, email=self.user.email)
+        self.assertEqual(card_cooldown_remaining(user=self.user, email=self.user.email), 0)
+
+    def test_the_declined_card_itself_is_not_vouched_for(self):
+        # One success on a different card says nothing about the one that kept
+        # being refused, which may well be somebody else's.
+        from payguard import record_card_success
+
+        for _ in range(4):
+            record_card_failure(user=self.user, ip=IP, email=self.user.email, fingerprint="fpBad")
+        record_card_success(user=self.user, ip=IP, email=self.user.email)
+        self.assertTrue(CardCooldown.objects.filter(kind="fingerprint", key="fpBad").exists())
+
+    def test_clearing_with_nothing_to_clear_does_not_raise(self):
+        from payguard import record_card_success
+
+        record_card_success()
