@@ -1,11 +1,12 @@
 # Stripe dashboard checklist (the part payguard can't do)
 
 payguard is the server-side half. These are the dashboard settings **you** apply
-once, on the shared Stripe account. They are where a *specific card* gets blocked
+once, on your Stripe account. They are where a *specific card* gets blocked
 (the server never sees card numbers), so they matter.
 
-> The account is **shared** across proxysterr / ipsterr / esimsterr / linksterr /
-> coolvpn. These settings are account-wide — they protect all of them at once.
+> If one Stripe account is **shared** across several products, these settings are
+> account-wide — they protect all of them at once. Enable the webhook event
+> (step 1) on every endpoint, so each product learns from its own failures.
 
 ---
 
@@ -18,9 +19,9 @@ Dashboard → **Developers → Webhooks** → each endpoint → **Add events**:
 - ✅ `charge.dispute.created` (already enabled for dispute alerts — keep it).
 - ✅ `checkout.session.completed` (already enabled — this is how top-ups credit).
 
-Do this on **every** endpoint that points at a Sterr backend. Your handler must
-return 2xx even for events that aren't yours (it already does — a non-2xx makes
-Stripe retry and can disable the endpoint).
+Do this on **every** endpoint that points at a backend using payguard. Your
+handler must return 2xx even for events that aren't yours (a non-2xx makes Stripe
+retry and can disable the endpoint).
 
 ## 2. Turn on Radar rules (the card-level blocks)
 

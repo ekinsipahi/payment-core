@@ -1,7 +1,8 @@
 # Integrating payguard into a backend
 
-This mirrors exactly what landed in **proxysterr**; esimsterr and linksterr apply
-the same steps. payguard touches only the card path — crypto is left alone.
+These are the exact wiring steps for any Django + DRF backend using Stripe
+Checkout (and optionally Paddle). payguard touches only the card path — crypto is
+left alone.
 
 ## 0. Install + migrate
 

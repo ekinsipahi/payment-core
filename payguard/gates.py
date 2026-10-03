@@ -3,20 +3,26 @@
 that already maps ValueError -> HTTP 400 needs no change."""
 from __future__ import annotations
 
-from . import conf, risk
+from . import conf, email_reputation, risk
 from .errors import CardBlocked
 
 
 def card_risk_gate(user, *, client_ip=None, email=None) -> None:
-    """Pre-Checkout gate for card top-ups: refuse disposable-email accounts and
-    any identity still inside its failed-attempt cooldown. Call BEFORE creating
-    the Stripe/Paddle session. Crypto must NOT be gated (no chargeback to abuse)
-    — the error message nudges the abuser there."""
+    """Pre-Checkout gate for card top-ups: refuse disposable-email accounts, a
+    random-looking email on a brand-new account, and any identity still inside its
+    failed-attempt cooldown. Call BEFORE creating the Stripe/Paddle session.
+    Crypto must NOT be gated (no chargeback to abuse) — every error nudges the
+    abuser there."""
     email = email or getattr(user, "email", "") or ""
     if risk.is_disposable_email(email):
         raise CardBlocked(
             "Card payments need a permanent email address. Use your main email, "
             "or pay with crypto for an instant top-up."
+        )
+    if email_reputation.random_new_email_blocks_card(email, user):
+        raise CardBlocked(
+            "We couldn't verify this account for card payments yet. Pay with "
+            "crypto for an instant top-up, or try a card again a bit later."
         )
     wait = risk.card_cooldown_remaining(user=user, ip=client_ip, email=email)
     if wait > 0:

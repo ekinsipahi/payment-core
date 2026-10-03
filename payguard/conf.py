@@ -1,6 +1,5 @@
 """Tunable knobs, read from Django settings with safe defaults. Every value can
-be overridden in the host project's settings (or via its env loader). Keeping the
-names identical to the Sterr backends makes payguard a drop-in replacement."""
+be overridden in the host project's settings (or via its env loader)."""
 from django.conf import settings
 
 
@@ -40,17 +39,17 @@ def session_window_min():
 # --- Shared addresses --------------------------------------------------------
 # How much of a cooldown an IP serves, as a fraction of what an account serves.
 #
-# An account is one person. An address is not, and for these products it is
-# emphatically not: esimsterr sells to travellers, so an airport, a hotel and a
-# cruise ship each put every customer behind one NAT address, and proxysterr
-# sells the shared exit address itself. Blocking an IP for six hours there does
-# not stop an attacker who can change address in seconds; it stops the paying
-# customers who cannot.
+# An account is one person. An address often is not: travellers share one NAT
+# address behind an airport / hotel / cruise-ship network, mobile carriers put
+# thousands of subscribers behind one CGNAT address, and some products resell a
+# shared exit address outright. Blocking such an IP for hours does not stop an
+# attacker who can change address in seconds — it locks out the paying customers
+# who can't, and they don't complain, they leave.
 #
-# So the address still counts -- a single machine grinding through a list from
-# one place does get slower -- but it counts at a quarter weight, and the rules
-# that actually catch a distributed attempt are the account ladder and the
-# distinct-card signal, neither of which cares what address it came from.
+# So the address still counts (one machine grinding a list from one place does
+# slow down), but at a fraction of an account's weight. The rules that actually
+# catch a distributed attempt are the account ladder and the distinct-card
+# signal, neither of which cares what address it came from.
 #
 # Set to 1.0 for a product whose customers each have their own address.
 def ip_cooldown_factor():
@@ -67,3 +66,29 @@ def extra_disposable_domains():
         return {d.strip().lower() for d in extra if d and d.strip()}
     except Exception:  # noqa: BLE001
         return set()
+
+
+# --- Random / brand-new email reputation ------------------------------------
+# A random-looking local part ("x7f9qk2j8@...") on a brand-new account is a
+# card-tester tell. Because legit users do sometimes have random-looking aliases,
+# we only BLOCK card (push to crypto) when BOTH signals agree: random-looking AND
+# the account is younger than CARD_NEW_ACCOUNT_MIN minutes. After that window the
+# same account's card works normally. Set CARD_BLOCK_RANDOM_NEW_EMAIL=False to
+# only score (never block), or CARD_NEW_ACCOUNT_MIN=0 to disable the age half.
+def block_random_new_email():
+    return bool(_get("CARD_BLOCK_RANDOM_NEW_EMAIL", True))
+
+
+def new_account_min():
+    return int(_get("CARD_NEW_ACCOUNT_MIN", 60) or 0)
+
+
+def random_email_min_len():
+    return int(_get("CARD_RANDOM_EMAIL_MIN_LEN", 10) or 0)
+
+
+def random_email_digit_ratio():
+    try:
+        return float(_get("CARD_RANDOM_EMAIL_DIGIT_RATIO", 0.35))
+    except (TypeError, ValueError):
+        return 0.35

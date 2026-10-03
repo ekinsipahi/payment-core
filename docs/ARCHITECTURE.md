@@ -28,11 +28,19 @@ catches that. Uses the real client IP (left-most `X-Forwarded-For`), because
 
 Throttles **fail open** when the cache is unreachable (DRF behaviour).
 
-## Layer 2 — Disposable-email scoring (`payguard.risk.is_disposable_email`)
+## Layer 2 — Email reputation (`payguard.risk` + `payguard.email_reputation`)
 
-Disposable/tempmail domain + card is the classic card-testing profile. We block
-~40 known throwaway domains **for card top-ups only**; crypto stays open (no
-chargeback to abuse). Extend the list with the `DISPOSABLE_EMAIL_DOMAINS` setting.
+Two card-only pre-checks (crypto always stays open — no chargeback to abuse):
+
+- **Disposable / tempmail domain** (`is_disposable_email`) → block. A throwaway
+  domain + card is the classic card-testing profile. ~40 built-in domains;
+  extend with the `DISPOSABLE_EMAIL_DOMAINS` setting.
+- **Random-looking email on a brand-new account** (`random_new_email_blocks_card`)
+  → deflect to crypto. `x7f9qk2j8@…` minted minutes ago is a bot tell. Because
+  legit users sometimes have alias-style addresses, this fires only when **both**
+  signals agree (random-looking local part **and** account younger than
+  `CARD_NEW_ACCOUNT_MIN`). After that window the same account's card works
+  normally. Set `CARD_BLOCK_RANDOM_NEW_EMAIL=False` to score without blocking.
 
 ## Layer 3 — Exponential multi-key cooldown (`payguard.risk`)
 
@@ -120,13 +128,13 @@ Every cooldown above applies to the account, the IP and the email alike. For an
 IP that is wrong here, and wrong in a way that costs customers rather than
 catching anybody.
 
-These products are sold to people behind shared addresses *by design*.
-esimsterr sells to travellers: an airport, a hotel and a cruise ship each put
-every customer on one NAT address. proxysterr sells the shared exit address
-itself. A six-hour block on one of those — which is what the gold signal hands
-out — does not inconvenience an attacker, who changes address in seconds; it
-locks out every paying customer sitting behind it, and they do not complain,
-they leave.
+Many products serve people behind shared addresses *by design*. Travellers sit
+behind one NAT address at an airport, a hotel or on a cruise ship; mobile
+carriers put thousands of subscribers behind one CGNAT address; some products
+resell the shared exit address itself. A six-hour block on one of those — which
+is what the gold signal hands out — does not inconvenience an attacker, who
+changes address in seconds; it locks out every paying customer sitting behind
+it, and they do not complain, they leave.
 
 So an IP serves `CARD_IP_COOLDOWN_FACTOR` of whatever an account would serve,
 0.25 by default. The address still counts: one machine grinding through a list
@@ -155,6 +163,10 @@ product whose customers each have their own address.
 | `CARD_MULTICARD_COOLDOWN_MIN` | 30 | base penalty (doubles/card, cap 6h) |
 | `CARD_IP_COOLDOWN_FACTOR` | 0.25 | fraction of a cooldown an **IP** serves (see below) |
 | `DISPOSABLE_EMAIL_DOMAINS` | `[]` | extra domains to block on card |
+| `CARD_BLOCK_RANDOM_NEW_EMAIL` | `True` | block random-looking email on a brand-new account |
+| `CARD_NEW_ACCOUNT_MIN` | 60 | "brand-new" account window, minutes (0 disables the age half) |
+| `CARD_RANDOM_EMAIL_MIN_LEN` | 10 | min local-part length before the randomness test applies |
+| `CARD_RANDOM_EMAIL_DIGIT_RATIO` | 0.35 | digit ratio that marks a local part random |
 | throttle rates `topup_ip`/`card`/`card_ip` | 30/8/12 per hour | see Layer 1 |
 
 Set any to a non-positive value to disable that guard.

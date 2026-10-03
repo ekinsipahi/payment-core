@@ -5,13 +5,44 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "payguard"
 version = "0.1.0"
-description = "Shared card-payment fraud defense (Stripe/Paddle card-testing guard) for the Sterr backends"
+description = "Free Stripe card-testing defense & Radar-fee saver for Django — block card testing and cut chargeback/Radar fees with a pre-charge fraud check."
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = [
+    "stripe",
+    "stripe-radar",
+    "radar-fee",
+    "stripe-fees",
+    "card-testing",
+    "stop-card-testing",
+    "fraud-prevention",
+    "chargeback",
+    "dispute-fees",
+    "django",
+    "djangorestframework",
+    "payments",
+    "fintech",
+    "fraud-detection",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: Django",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Office/Business :: Financial",
+    "Topic :: Security",
+]
 dependencies = [
     "Django>=4.2",
     "djangorestframework>=3.14",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ekinsipahi/payment-core"
+Source = "https://github.com/ekinsipahi/payment-core"
+Issues = "https://github.com/ekinsipahi/payment-core/issues"
 
 [tool.setuptools]
 packages = ["payguard", "payguard.migrations"]
