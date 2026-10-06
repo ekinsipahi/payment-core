@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "payguard"
-version = "0.1.0"
+version = "0.2.0"
 description = "Free Stripe card-testing defense & Radar-fee saver for Django — block card testing and cut chargeback/Radar fees with a pre-charge fraud check."
 readme = "README.md"
 requires-python = ">=3.10"
