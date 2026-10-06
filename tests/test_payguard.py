@@ -17,6 +17,7 @@ from django.utils import timezone
 
 from payguard import (CardBlocked, card_cooldown_remaining, card_risk_gate,
                       client_ip, fingerprint_from_failed_pi, is_disposable_email,
+                      is_permanently_blocked, permanently_block,
                       record_card_failure, remember_checkout_ip)
 from payguard.gates import card_velocity_guard
 from payguard.models import CardCooldown
@@ -295,3 +296,55 @@ class SuccessClearsTheLadderTests(CacheIsolatedTestCase):
         self.assertTrue(CardCooldown.objects.filter(kind="ip", key=IP).exists())
         record_card_success(user=self.user, email=self.user.email)       # no ip= passed
         self.assertFalse(CardCooldown.objects.filter(kind="ip", key=IP).exists())
+
+
+class PermanentBlockTests(CacheIsolatedTestCase):
+    """The fraudster list: past the ladder, or the moment Stripe/Radar (or a
+    human) confirms fraud, a card is never let back in — not even after a
+    quiet spell, not even after a different card of theirs later pays."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(username="carder", email="carder@example.com")
+
+    @override_settings(CARD_PERMANENT_BLOCK_AFTER=4)
+    def test_the_ladder_escalates_to_permanent_past_the_threshold(self):
+        for _ in range(4):
+            record_card_failure(user=self.user, email=self.user.email)
+        self.assertTrue(is_permanently_blocked(user=self.user, email=self.user.email))
+        self.assertGreater(card_cooldown_remaining(user=self.user, email=self.user.email), 3600)
+
+    def test_a_quiet_spell_does_not_lift_a_permanent_block(self):
+        permanently_block(user=self.user, email=self.user.email, reason="test")
+        old = timezone.now() - timedelta(hours=48)
+        CardCooldown.objects.filter(permanent=True).update(last_fail_at=old)
+        self.assertTrue(is_permanently_blocked(user=self.user, email=self.user.email))
+        self.assertGreater(card_cooldown_remaining(user=self.user, email=self.user.email), 0)
+
+    def test_a_later_successful_card_does_not_lift_a_permanent_block(self):
+        from payguard import record_card_success
+
+        permanently_block(user=self.user, email=self.user.email, reason="radar: fraudulent")
+        record_card_success(user=self.user, email=self.user.email)
+        self.assertTrue(is_permanently_blocked(user=self.user, email=self.user.email))
+
+    def test_card_risk_gate_refuses_a_permanently_blocked_identity(self):
+        permanently_block(user=self.user, email=self.user.email, reason="radar: fraudulent")
+        with self.assertRaises(CardBlocked) as ctx:
+            card_risk_gate(self.user, client_ip=IP, email=self.user.email)
+        # No retry_after — this is not a cooldown with an end, unlike the ladder.
+        self.assertIsNone(ctx.exception.retry_after)
+
+    def test_ticking_permanent_in_admin_sets_a_far_future_block(self):
+        # The admin UX is "tick the box and save" — the model itself must turn
+        # that into a real blocked_until, not rely on a caller to also set one.
+        row = CardCooldown.objects.create(kind=CardCooldown.Kind.EMAIL, key="manual@example.com",
+                                           permanent=True)
+        self.assertIsNotNone(row.blocked_until)
+        self.assertGreater(row.blocked_until, timezone.now() + timedelta(days=365 * 50))
+
+    def test_permanent_block_after_zero_disables_ladder_escalation(self):
+        with override_settings(CARD_PERMANENT_BLOCK_AFTER=0):
+            for _ in range(20):
+                record_card_failure(user=self.user, email=self.user.email)
+            self.assertFalse(is_permanently_blocked(user=self.user, email=self.user.email))

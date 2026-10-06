@@ -14,6 +14,18 @@ COOLDOWN_MAX = 3600
 DECAY_HOURS = 24  # a quiet spell resets the per-key counter
 
 
+# --- Permanent block (the "fraudster list") ----------------------------------
+# Past this many failures on ONE key (account/IP/email/fingerprint) within a
+# single non-decayed run, stop re-issuing ladder cooldowns and block that key
+# forever instead. A real customer does not fail a card payment 8 times in a
+# row without giving up or switching to crypto; something retrying past that
+# point is scripted. Set to 0 to disable count-based escalation (Stripe Radar's
+# explicit "fraudulent" signal still triggers permanently_block() directly,
+# see stripe_signals / the host project's webhook handler).
+def permanent_block_after():
+    return int(_get("CARD_PERMANENT_BLOCK_AFTER", 8) or 0)
+
+
 # --- Multi-card "gold signal" -----------------------------------------------
 def distinct_fingerprints():
     return int(_get("CARD_DISTINCT_FINGERPRINTS", 3) or 0)

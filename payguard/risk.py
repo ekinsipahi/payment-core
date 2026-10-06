@@ -215,6 +215,10 @@ def record_card_failure(*, user=None, ip=None, email=None, fingerprint=None) -> 
     for every identity it touched, then apply the multi-card penalty if this
     account is burning distinct cards. Never raises.
 
+    Past ``conf.permanent_block_after()`` failures on one key without an
+    intervening success, the ladder stops re-cooling down and that key is
+    blocked forever instead — see ``permanently_block``.
+
     ``ip`` is optional — if omitted and ``email`` is given, it's recalled from
     whatever card_risk_gate (or a direct remember_checkout_ip call) cached at
     checkout time."""
@@ -236,10 +240,13 @@ def record_card_failure(*, user=None, ip=None, email=None, fingerprint=None) -> 
         logger.exception("CardAttempt log failed")
 
     decay_before = now - timezone.timedelta(hours=conf.DECAY_HOURS)
+    permanent_after = conf.permanent_block_after()
     for kind, key in _keys(user=user, ip=ip, email=email, fingerprint=fingerprint):
         try:
             with transaction.atomic():
                 row, _ = CardCooldown.objects.select_for_update().get_or_create(kind=kind, key=key)
+                if row.permanent:
+                    continue  # already on the fraudster list — nothing to escalate
                 if row.last_fail_at and row.last_fail_at < decay_before:
                     row.fail_count = 0
                     row.first_fail_at = None
@@ -247,13 +254,74 @@ def record_card_failure(*, user=None, ip=None, email=None, fingerprint=None) -> 
                 if row.first_fail_at is None:
                     row.first_fail_at = now
                 row.last_fail_at = now
-                secs = _ladder_seconds(row.fail_count)
-                row.blocked_until = now + timezone.timedelta(seconds=secs) if secs else None
+                if permanent_after and row.fail_count >= permanent_after:
+                    row.permanent = True
+                    row.reason = row.reason or "ladder: repeated failures past threshold"
+                    # blocked_until is set by CardCooldown.save() when permanent=True
+                else:
+                    secs = _ladder_seconds(row.fail_count)
+                    row.blocked_until = now + timezone.timedelta(seconds=secs) if secs else None
                 row.save()
         except Exception:  # noqa: BLE001
             logger.exception("record_card_failure failed for %s:%s", kind, key)
 
     _multicard_penalty(user, ip, now)
+
+
+def permanently_block(*, user=None, ip=None, email=None, fingerprint=None, reason: str = "") -> None:
+    """Put every identity this attempt touched on the fraudster list, for good.
+
+    Call this the moment you have standalone proof of fraud rather than waiting
+    for the ladder to escalate on its own — e.g. Stripe Radar declining a charge
+    with ``decline_code == "fraudulent"``, or a human confirming a chargeback.
+    Unlike the ladder this never decays and a quiet spell never lifts it; only
+    deleting the row (or un-ticking ``permanent`` in admin) does. Never raises."""
+    from .models import CardAttempt, CardCooldown
+
+    if not ip and email:
+        ip = _recall_checkout_ip(email)
+    now = timezone.now()
+    try:
+        CardAttempt.objects.create(
+            user=user if (user is not None and getattr(user, "pk", None)) else None,
+            fingerprint=(str(fingerprint)[:255] if fingerprint else ""),
+            ip=(str(ip)[:255] if ip else ""),
+            email=((email or "").strip().lower()[:255]),
+            outcome="fraud_blocked",
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("CardAttempt log failed (permanently_block)")
+
+    for kind, key in _keys(user=user, ip=ip, email=email, fingerprint=fingerprint):
+        try:
+            with transaction.atomic():
+                row, _ = CardCooldown.objects.select_for_update().get_or_create(kind=kind, key=key)
+                row.permanent = True
+                row.reason = reason or row.reason or "fraud confirmed"
+                row.last_fail_at = now
+                if row.first_fail_at is None:
+                    row.first_fail_at = now
+                row.save()  # blocked_until set by CardCooldown.save()
+        except Exception:  # noqa: BLE001
+            logger.exception("permanently_block failed for %s:%s", kind, key)
+    logger.warning("permanently_block: user=%s email=%s reason=%s",
+                   getattr(user, "pk", None), email, reason)
+
+
+def is_permanently_blocked(*, user=None, ip=None, email=None, fingerprint=None) -> bool:
+    """True if ANY of the given identities is on the fraudster list. Fails open."""
+    from .models import CardCooldown
+
+    keys = _keys(user=user, ip=ip, email=email, fingerprint=fingerprint)
+    if not keys:
+        return False
+    try:
+        return CardCooldown.objects.filter(
+            kind__in=[k for k, _ in keys], key__in=[v for _, v in keys], permanent=True,
+        ).exists()
+    except Exception:  # noqa: BLE001
+        logger.exception("is_permanently_blocked failed")
+        return False
 
 
 def record_card_success(*, user=None, ip=None, email=None) -> None:
@@ -285,8 +353,11 @@ def record_card_success(*, user=None, ip=None, email=None) -> None:
     if not keys:
         return
     try:
+        # permanent=True is excluded: a confirmed fraudster list entry is not a
+        # ladder state to clear on a win (see permanently_block's docstring —
+        # only deleting the row, or un-ticking it in admin, lifts it).
         CardCooldown.objects.filter(
-            kind__in=[k for k, _ in keys], key__in=[v for _, v in keys]
+            kind__in=[k for k, _ in keys], key__in=[v for _, v in keys], permanent=False,
         ).delete()
     except Exception:  # noqa: BLE001
         logger.exception("record_card_success failed")
@@ -314,6 +385,9 @@ def card_cooldown_remaining(*, user=None, ip=None, email=None) -> int:
         for kind, key in keys:
             r = rows.get((kind, key))
             if not r or not r.blocked_until:
+                continue
+            if r.permanent:
+                remaining = max(remaining, int((r.blocked_until - now).total_seconds()) + 1)
                 continue
             if r.last_fail_at and r.last_fail_at < decay_before:
                 continue

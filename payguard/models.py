@@ -1,5 +1,12 @@
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
+
+# A "forever" block is stored as a concrete far-future timestamp rather than
+# NULL, so it sorts, compares and displays like any other blocked_until and no
+# code path needs a NULL-means-forever special case. 100 years is "forever" for
+# a card-testing account without relying on a database-specific datetime max.
+PERMANENT_BLOCK_YEARS = 100
 
 
 class CardCooldown(models.Model):
@@ -10,7 +17,13 @@ class CardCooldown(models.Model):
     it touches and pushes ``blocked_until`` out along the ladder (30s -> 2m ->
     10m -> 1h). A new card Checkout Session is refused while ANY of its keys is
     still blocked. The count decays after a quiet spell. We store Stripe's safe
-    fingerprint, never a card number."""
+    fingerprint, never a card number.
+
+    ``permanent`` is the escalation past the ladder: a confirmed carding
+    identity (Stripe Radar called a charge outright fraudulent, or the ladder
+    itself was retried past ``conf.permanent_block_after()``) that must never
+    be let back in, not even after the normal quiet-spell decay. See
+    ``risk.permanently_block`` / ``risk.is_permanently_blocked``."""
 
     class Kind(models.TextChoices):
         ACCOUNT = "account", "Account"
@@ -24,6 +37,8 @@ class CardCooldown(models.Model):
     blocked_until = models.DateTimeField(null=True, blank=True)
     first_fail_at = models.DateTimeField(null=True, blank=True)
     last_fail_at = models.DateTimeField(null=True, blank=True)
+    permanent = models.BooleanField(default=False, db_index=True)
+    reason = models.CharField(max_length=255, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -31,7 +46,19 @@ class CardCooldown(models.Model):
         unique_together = (("kind", "key"),)
         indexes = [models.Index(fields=["kind", "key"])]
 
+    def save(self, *args, **kwargs):
+        # Staff ticking "permanent" in admin (or any code setting it directly)
+        # gets a real far-future blocked_until for free — one invariant, one
+        # place, instead of every caller having to remember to set both.
+        if self.permanent:
+            floor = timezone.now() + timezone.timedelta(days=365 * PERMANENT_BLOCK_YEARS)
+            if self.blocked_until is None or self.blocked_until < floor:
+                self.blocked_until = floor
+        super().save(*args, **kwargs)
+
     def __str__(self):
+        if self.permanent:
+            return f"CardCooldown({self.kind}:{self.key} PERMANENT)"
         return f"CardCooldown({self.kind}:{self.key} x{self.fail_count} until {self.blocked_until})"
 
 

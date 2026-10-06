@@ -32,6 +32,11 @@ def card_risk_gate(user, *, client_ip=None, email=None) -> None:
             "We couldn't verify this account for card payments yet. Pay with "
             "crypto for an instant top-up, or try a card again a bit later."
         )
+    if risk.is_permanently_blocked(user=user, ip=client_ip, email=email):
+        raise CardBlocked(
+            "Card payments are permanently disabled on this account due to "
+            "confirmed fraudulent activity. Crypto remains available."
+        )
     wait = risk.card_cooldown_remaining(user=user, ip=client_ip, email=email)
     if wait > 0:
         raise CardBlocked(risk.card_wait_message(wait), retry_after=wait)

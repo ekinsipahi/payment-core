@@ -11,6 +11,8 @@ Public API (import from ``payguard``):
     looks_random_email(email) -> bool
     card_cooldown_remaining(user=, ip=, email=) -> int   # seconds; 0 = allowed
     record_card_failure(user=, ip=, email=, fingerprint=) -> None  # ip optional, see remember_checkout_ip
+    permanently_block(user=, ip=, email=, fingerprint=, reason=) -> None  # the fraudster list
+    is_permanently_blocked(user=, ip=, email=, fingerprint=) -> bool
     remember_checkout_ip(email, ip) -> None              # usually automatic via card_risk_gate
     card_wait_message(seconds) -> str
     card_risk_gate(user, client_ip=, email=)             # raises CardBlocked
@@ -27,6 +29,8 @@ from .risk import (
     card_cooldown_remaining,
     card_wait_message,
     is_disposable_email,
+    is_permanently_blocked,
+    permanently_block,
     record_card_failure,
     record_card_success,
     remember_checkout_ip,
@@ -42,6 +46,8 @@ __all__ = [
     "card_cooldown_remaining",
     "record_card_failure",
     "record_card_success",
+    "permanently_block",
+    "is_permanently_blocked",
     "remember_checkout_ip",
     "card_wait_message",
     "card_risk_gate",
