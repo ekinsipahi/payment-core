@@ -241,6 +241,7 @@ def record_card_failure(*, user=None, ip=None, email=None, fingerprint=None) -> 
 
     decay_before = now - timezone.timedelta(hours=conf.DECAY_HOURS)
     permanent_after = conf.permanent_block_after()
+    permanent_ip_ok = conf.permanent_blocks_ip()
     for kind, key in _keys(user=user, ip=ip, email=email, fingerprint=fingerprint):
         try:
             with transaction.atomic():
@@ -254,7 +255,9 @@ def record_card_failure(*, user=None, ip=None, email=None, fingerprint=None) -> 
                 if row.first_fail_at is None:
                     row.first_fail_at = now
                 row.last_fail_at = now
-                if permanent_after and row.fail_count >= permanent_after:
+                can_escalate = permanent_after and row.fail_count >= permanent_after and (
+                    kind != CardCooldown.Kind.IP or permanent_ip_ok)
+                if can_escalate:
                     row.permanent = True
                     row.reason = row.reason or "ladder: repeated failures past threshold"
                     # blocked_until is set by CardCooldown.save() when permanent=True
@@ -275,7 +278,12 @@ def permanently_block(*, user=None, ip=None, email=None, fingerprint=None, reaso
     for the ladder to escalate on its own — e.g. Stripe Radar declining a charge
     with ``decline_code == "fraudulent"``, or a human confirming a chargeback.
     Unlike the ladder this never decays and a quiet spell never lifts it; only
-    deleting the row (or un-ticking ``permanent`` in admin) does. Never raises."""
+    deleting the row (or un-ticking ``permanent`` in admin) does. Never raises.
+
+    The IP key is skipped unless ``CARD_PERMANENT_BLOCK_IP`` is set — an address
+    is often shared (CGNAT, an office, an airport), and the fraud proof this
+    function acts on is about the account/card, not everyone behind that
+    address. account/email/fingerprint are never shared that way."""
     from .models import CardAttempt, CardCooldown
 
     if not ip and email:
@@ -292,7 +300,10 @@ def permanently_block(*, user=None, ip=None, email=None, fingerprint=None, reaso
     except Exception:  # noqa: BLE001
         logger.exception("CardAttempt log failed (permanently_block)")
 
-    for kind, key in _keys(user=user, ip=ip, email=email, fingerprint=fingerprint):
+    keys = _keys(user=user, ip=ip, email=email, fingerprint=fingerprint)
+    if not conf.permanent_blocks_ip():
+        keys = [(kind, key) for kind, key in keys if kind != CardCooldown.Kind.IP]
+    for kind, key in keys:
         try:
             with transaction.atomic():
                 row, _ = CardCooldown.objects.select_for_update().get_or_create(kind=kind, key=key)

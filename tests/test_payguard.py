@@ -348,3 +348,28 @@ class PermanentBlockTests(CacheIsolatedTestCase):
             for _ in range(20):
                 record_card_failure(user=self.user, email=self.user.email)
             self.assertFalse(is_permanently_blocked(user=self.user, email=self.user.email))
+
+    @override_settings(CARD_PERMANENT_BLOCK_AFTER=4)
+    def test_a_shared_ip_never_auto_escalates_to_permanent(self):
+        # An address is often CGNAT/an office/an airport, not one person — the
+        # ladder's own escalation must never put an IP on the fraudster list,
+        # only the account/email/fingerprint it touched. Same IP, many accounts
+        # failing past the threshold: none of it should block the address.
+        for i in range(6):
+            u = User.objects.create_user(username=f"many{i}", email=f"many{i}@example.com")
+            record_card_failure(user=u, ip=IP, email=u.email)
+        self.assertFalse(CardCooldown.objects.filter(
+            kind=CardCooldown.Kind.IP, key=IP, permanent=True).exists())
+
+    def test_permanently_block_skips_the_ip_key_by_default(self):
+        permanently_block(user=self.user, ip=IP, email=self.user.email, reason="radar")
+        self.assertFalse(CardCooldown.objects.filter(
+            kind=CardCooldown.Kind.IP, key=IP, permanent=True).exists())
+        self.assertTrue(CardCooldown.objects.filter(
+            kind=CardCooldown.Kind.EMAIL, permanent=True).exists())
+
+    @override_settings(CARD_PERMANENT_BLOCK_IP=True)
+    def test_permanently_block_can_opt_into_the_ip_key(self):
+        permanently_block(user=self.user, ip=IP, email=self.user.email, reason="radar")
+        self.assertTrue(CardCooldown.objects.filter(
+            kind=CardCooldown.Kind.IP, key=IP, permanent=True).exists())

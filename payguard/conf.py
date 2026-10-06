@@ -26,6 +26,16 @@ def permanent_block_after():
     return int(_get("CARD_PERMANENT_BLOCK_AFTER", 8) or 0)
 
 
+# An IP is often not one person (CGNAT, offices, airports — see
+# ip_cooldown_factor above), so neither the ladder's own escalation nor an
+# explicit permanently_block() call should put an address on the fraudster
+# list by default — only account/email/fingerprint, identities an address
+# doesn't share across strangers. A product confident its users each have
+# their own address (ip_cooldown_factor=1.0) can opt back in.
+def permanent_blocks_ip():
+    return bool(_get("CARD_PERMANENT_BLOCK_IP", False))
+
+
 # --- Multi-card "gold signal" -----------------------------------------------
 def distinct_fingerprints():
     return int(_get("CARD_DISTINCT_FINGERPRINTS", 3) or 0)
